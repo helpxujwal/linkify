@@ -240,6 +240,8 @@
         /*
          * INSTRUCTIONS FOR VERCEL DEPLOYMENT:
          * To connect it to your Vercel KV Database securely, paste your keys here.
+         * NOTE: Because this is an HTML file, Vercel Dashboard .env variables will 
+         * not automatically inject. You MUST edit the values below directly.
          */
         const ENV = {
             // Your plain text password for login. You can change it to whatever you want.
@@ -256,7 +258,7 @@
         const isVercelMode = ENV.KV_REST_API_URL !== "" && ENV.KV_REST_API_TOKEN !== "";
 
         // ==========================================
-        // 💾 DATABASE ENGINE (Vercel KV API)
+        // 💾 DATABASE ENGINE (Vercel KV API) WITH SAFETY NETS
         // ==========================================
         const DB = {
             headers: {
@@ -266,11 +268,16 @@
             
             async save(key, data) {
                 if (isVercelMode) {
-                    await fetch(`${ENV.KV_REST_API_URL}/set/${key}`, {
-                        method: 'POST',
-                        headers: this.headers,
-                        body: JSON.stringify(data)
-                    });
+                    try {
+                        await fetch(`${ENV.KV_REST_API_URL}/set/${key}`, {
+                            method: 'POST',
+                            headers: this.headers,
+                            body: JSON.stringify(data)
+                        });
+                    } catch(e) {
+                        console.error("Vercel KV Save Error", e);
+                        showToast("Failed to communicate with cloud database", "error");
+                    }
                 } else {
                     const links = JSON.parse(localStorage.getItem('lt_pro_links') || '{}');
                     links[key] = data;
@@ -280,9 +287,14 @@
             
             async get(key) {
                 if (isVercelMode) {
-                    const res = await fetch(`${ENV.KV_REST_API_URL}/get/${key}`, { headers: this.headers });
-                    const json = await res.json();
-                    return json.result ? JSON.parse(json.result) : null;
+                    try {
+                        const res = await fetch(`${ENV.KV_REST_API_URL}/get/${key}`, { headers: this.headers });
+                        const json = await res.json();
+                        return json.result ? JSON.parse(json.result) : null;
+                    } catch(e) {
+                        console.error("Vercel KV Get Error", e);
+                        return null;
+                    }
                 } else {
                     const links = JSON.parse(localStorage.getItem('lt_pro_links') || '{}');
                     return links[key] || null;
@@ -297,7 +309,11 @@
 
             async delete(key) {
                 if (isVercelMode) {
-                    await fetch(`${ENV.KV_REST_API_URL}/del/${key}`, { headers: this.headers });
+                    try {
+                        await fetch(`${ENV.KV_REST_API_URL}/del/${key}`, { headers: this.headers });
+                    } catch(e) {
+                        console.error("Vercel KV Delete Error", e);
+                    }
                 } else {
                     const links = JSON.parse(localStorage.getItem('lt_pro_links') || '{}');
                     delete links[key];
@@ -307,20 +323,35 @@
             
             async getAll() {
                 if (isVercelMode) {
-                    // Fetch keys
-                    const res = await fetch(`${ENV.KV_REST_API_URL}/scan/0?match=link_*&count=1000`, { headers: this.headers });
-                    const scanData = await res.json();
-                    const keys = scanData.result[1] || [];
-                    
-                    // Fetch data for all keys in parallel for speed
-                    const links = {};
-                    const fetchPromises = keys.map(async (key) => {
-                        const data = await this.get(key);
-                        if (data) links[key] = data;
-                    });
-                    
-                    await Promise.all(fetchPromises);
-                    return links;
+                    try {
+                        // Fetch keys
+                        const res = await fetch(`${ENV.KV_REST_API_URL}/scan/0?match=link_*&count=1000`, { headers: this.headers });
+                        const scanData = await res.json();
+                        
+                        // Safety check if database is empty or token is invalid
+                        if (scanData.error) {
+                            console.error("Vercel KV Authorization Error:", scanData.error);
+                            showToast("Database Connection Error. Check Keys.", "error");
+                            return {};
+                        }
+                        
+                        const keys = scanData.result ? scanData.result[1] : [];
+                        if(!keys || keys.length === 0) return {};
+                        
+                        // Fetch data for all keys in parallel for speed
+                        const links = {};
+                        const fetchPromises = keys.map(async (key) => {
+                            const data = await this.get(key);
+                            if (data) links[key] = data;
+                        });
+                        
+                        await Promise.all(fetchPromises);
+                        return links;
+                    } catch(e) {
+                        console.error("Vercel KV Error:", e);
+                        showToast("Failed to load links from Database", "error");
+                        return {};
+                    }
                 } else {
                     return JSON.parse(localStorage.getItem('lt_pro_links') || '{}');
                 }
@@ -385,7 +416,12 @@
             }
 
             const urlParams = new URLSearchParams(window.location.search);
-            const shortCode = urlParams.get('l'); 
+            let shortCode = urlParams.get('l'); 
+            
+            // Advanced Routing: Detects if link is example.com/insta instead of example.com/?l=insta
+            if (!shortCode && window.location.pathname.length > 1 && window.location.pathname !== '/index.html') {
+                shortCode = window.location.pathname.substring(1);
+            }
 
             if (shortCode) {
                 showView('redirect');
@@ -465,7 +501,7 @@
             e.preventDefault();
             const pass = document.getElementById('password-input').value;
             
-            // Direct plain-text password matching, no hash.
+            // Direct plain-text password matching, exactly as requested.
             if (pass === ENV.ADMIN_PASSWORD) {
                 sessionStorage.setItem('auth_pro', 'true');
                 showView('dashboard');
@@ -534,6 +570,7 @@
                 let shortCode = "";
                 if (customAlias) {
                     shortCode = customAlias.replace(/[^a-zA-Z0-9-_]/g, ''); // sanitize
+                    if(!shortCode) shortCode = Math.random().toString(36).substring(2, 8); // fallback
                 } else {
                     shortCode = Math.random().toString(36).substring(2, 8); // 6 char alphanumeric
                 }
@@ -761,18 +798,15 @@
 
         window.downloadQR = () => {
             if (!currentQRUrl) return;
-            fetch(currentQRUrl)
-                .then(response => response.blob())
-                .then(blob => {
-                    const link = document.createElement('a');
-                    link.href = URL.createObjectURL(blob);
-                    link.download = 'link-transfer-qr.png';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    showToast("QR Code Downloaded");
-                })
-                .catch(() => showToast("Error downloading QR", "error"));
+            // Modified approach to bypass strict CORS requirements on some devices
+            const link = document.createElement('a');
+            link.href = currentQRUrl;
+            link.setAttribute('target', '_blank');
+            link.setAttribute('download', 'qr-code.png');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showToast("QR Code successfully opened/downloaded.");
         };
 
         // Boot system
