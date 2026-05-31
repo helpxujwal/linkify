@@ -136,6 +136,17 @@
                             </div>
                         </div>
 
+                        <!-- NEW FEATURE: Custom Alias -->
+                        <div>
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Custom Alias <span class="text-slate-500 font-normal normal-case">(Optional)</span></label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                    <span class="text-slate-500 font-bold text-lg">/</span>
+                                </div>
+                                <input type="text" id="custom-alias" placeholder="my-custom-link" class="w-full bg-slate-900/60 border border-slate-700 text-white rounded-xl pl-9 pr-4 py-3.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-medium" pattern="[a-zA-Z0-9-_]+" title="Only letters, numbers, hyphens, and underscores are allowed.">
+                            </div>
+                        </div>
+
                         <!-- Expiration Preset -->
                         <div>
                             <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Expiration Preset</label>
@@ -170,11 +181,20 @@
                             <h3 class="text-xl font-bold text-white">Active Routes</h3>
                             <p class="text-sm text-slate-400 mt-1">Manage and track your transfer links</p>
                         </div>
-                        <div class="flex items-center gap-3">
+                        
+                        <div class="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
+                            <!-- NEW FEATURE: Live Search Bar -->
+                            <div class="relative w-full sm:w-48 order-last sm:order-none">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                </div>
+                                <input type="text" id="search-input" placeholder="Search routes..." class="w-full bg-slate-900/50 border border-slate-700 text-white text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-blue-500 transition-all">
+                            </div>
+                            
                             <button onclick="loadDashboard()" class="p-2 text-slate-400 hover:text-white transition-colors" title="Refresh">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                             </button>
-                            <span id="link-count" class="bg-blue-500/10 text-blue-400 text-sm font-bold px-4 py-1.5 rounded-full border border-blue-500/20">0 Active</span>
+                            <span id="link-count" class="bg-blue-500/10 text-blue-400 text-sm font-bold px-4 py-1.5 rounded-full border border-blue-500/20 whitespace-nowrap">0 Active</span>
                         </div>
                     </div>
                     
@@ -219,17 +239,11 @@
         // =========================================================================
         /*
          * INSTRUCTIONS FOR VERCEL DEPLOYMENT:
-         * Because this is a high-speed static HTML file, it runs at the edge.
          * To connect it to your Vercel KV Database securely, paste your keys here.
-         * * 1. Go to Vercel Dashboard -> Storage -> Create KV Database
-         * 2. View `.env.local` snippet in your KV Settings.
-         * 3. Paste the URL and Token below.
          */
         const ENV = {
-            // [SECURE HASH]: This hides your plain text password from developers!
-            // The default hash below is for the password: "admin"
-            // To change your password, generate a new SHA-256 hash online and paste it here.
-            PASSWORD_HASH: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918", 
+            // Your plain text password for login. You can change it to whatever you want.
+            ADMIN_PASSWORD: "test@123", 
             
             // e.g., "https://fitting-urchin-32145.upstash.io"
             KV_REST_API_URL: "", 
@@ -240,16 +254,6 @@
         // =========================================================================
 
         const isVercelMode = ENV.KV_REST_API_URL !== "" && ENV.KV_REST_API_TOKEN !== "";
-
-        // ==========================================
-        // 🔐 SECURITY & CRYPTOGRAPHY ENGINE
-        // ==========================================
-        async function hashPassword(password) {
-            const msgBuffer = new TextEncoder().encode(password);
-            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-            const hashArray = Array.from(new Uint8Array(hashBuffer));
-            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        }
 
         // ==========================================
         // 💾 DATABASE ENGINE (Vercel KV API)
@@ -457,12 +461,12 @@
         }
 
         // --- AUTHENTICATION ---
-        document.getElementById('login-form').addEventListener('submit', async (e) => {
+        document.getElementById('login-form').addEventListener('submit', (e) => {
             e.preventDefault();
             const pass = document.getElementById('password-input').value;
-            const hashedInput = await hashPassword(pass);
             
-            if (hashedInput === ENV.PASSWORD_HASH) {
+            // Direct plain-text password matching, no hash.
+            if (pass === ENV.ADMIN_PASSWORD) {
                 sessionStorage.setItem('auth_pro', 'true');
                 showView('dashboard');
                 loadDashboard();
@@ -492,12 +496,27 @@
             }
         });
 
+        // Live Search Filter Feature
+        document.getElementById('search-input').addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            const cards = document.querySelectorAll('#links-container .route-card');
+            cards.forEach(card => {
+                const textContent = card.innerText.toLowerCase();
+                if (textContent.includes(term)) {
+                    card.style.display = 'flex';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        });
+
         // --- LINK GENERATION ---
         document.getElementById('create-link-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('btn-generate');
             const targetUrl = document.getElementById('target-url').value;
             const expSelection = document.getElementById('expiration-select').value;
+            let customAlias = document.getElementById('custom-alias').value.trim();
             
             // Visual Loading State
             const originalBtnHtml = btn.innerHTML;
@@ -511,8 +530,24 @@
                     finalUrl = 'https://' + finalUrl;
                 }
 
-                const shortCode = Math.random().toString(36).substring(2, 8); // 6 char alphanumeric
+                // Determine Short Code (Random vs Custom)
+                let shortCode = "";
+                if (customAlias) {
+                    shortCode = customAlias.replace(/[^a-zA-Z0-9-_]/g, ''); // sanitize
+                } else {
+                    shortCode = Math.random().toString(36).substring(2, 8); // 6 char alphanumeric
+                }
+                
                 const key = `link_${shortCode}`;
+
+                // Validate if Custom Alias is already taken
+                const existingData = await DB.get(key);
+                if (existingData) {
+                    showToast("Alias already in use. Choose another.", 'error');
+                    btn.innerHTML = originalBtnHtml;
+                    btn.disabled = false;
+                    return;
+                }
                 
                 let expiresAt = null;
                 const now = Date.now();
@@ -536,6 +571,7 @@
                 
                 // Reset Form
                 document.getElementById('target-url').value = '';
+                document.getElementById('custom-alias').value = '';
                 document.getElementById('expiration-select').value = 'lifetime';
                 document.getElementById('custom-date-container').classList.add('hidden');
                 
@@ -554,6 +590,7 @@
         async function loadDashboard() {
             const container = document.getElementById('links-container');
             const countBadge = document.getElementById('link-count');
+            const searchInput = document.getElementById('search-input');
             
             container.innerHTML = `
                 <div class="flex flex-col items-center justify-center h-40">
@@ -564,7 +601,6 @@
             
             const allLinks = await DB.getAll();
             const now = Date.now();
-            let activeCount = 0;
             let expiredKeys = [];
 
             // Identify expired links for Auto-cleanup
@@ -622,7 +658,8 @@
                 const clicks = data.clicks || 0;
 
                 const card = document.createElement('div');
-                card.className = `p-5 rounded-2xl bg-slate-800/60 border border-slate-700 hover:border-slate-600 transition-all flex flex-col md:flex-row md:items-center justify-between gap-5 group`;
+                // Added 'route-card' class to easily target for live search filtering
+                card.className = `route-card p-5 rounded-2xl bg-slate-800/60 border border-slate-700 hover:border-slate-600 transition-all flex flex-col md:flex-row md:items-center justify-between gap-5 group`;
                 
                 card.innerHTML = `
                     <div class="flex-1 min-w-0">
@@ -656,6 +693,11 @@
                 `;
                 container.appendChild(card);
             });
+
+            // Trigger search filter if there was an active search before reload
+            if (searchInput.value) {
+                searchInput.dispatchEvent(new Event('input'));
+            }
         }
 
         // --- UTILS & MODALS ---
